@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Objectify Transaction Provider Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Cool Neutrals (Slate, Light Gray, Muted Blue) -->
+    <!-- Application Structure Plan: The application uses a Dashboard-Panel structure. The top section features four clickable cards, one for each core method, which serve as the primary navigation. Below, a dynamic Detail Panel updates based on the selected card. This structure allows users to quickly compare methods and see granular detail without navigating away. A dedicated "Current State" section was included to allow the user to visualize the critical concept of "Transaction Propagation" (joining vs. creating a new one), which is the most complex distinction between the methods. This design prioritizes rapid learning and comparison. -->
+    <!-- Visualization & Content Choices: Report Info -> Four Key Methods -> Presentation: Interactive Cards & Dynamic Detail Panel (HTML/CSS/JS) -> Interaction: Card click triggers content update. | Report Info -> Transaction Propagation & Retry Logic -> Presentation: Status Boxes (HTML/CSS) controlled by a toggle switch (JS) -> Interaction: Toggle switch controls state (Active/Inactive), demonstrating the consequence of each method choice. -> Justification: Conceptual visualization via dynamic text and color changes is the clearest way to explain abstract concurrency concepts. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .method-card { transition: all 0.2s ease; cursor: pointer; border-left-width: 4px; border-left-color: transparent; }
+        .method-card:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05); }
+        .method-card.active { border-left-color: #3b82f6; background-color: #eff6ff; }
+        .status-box { transition: background-color 0.3s ease, border-color 0.3s ease; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="text-center mb-12">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-2">Objectify Transaction Provider Reference</h1>
+            <p class="text-lg text-slate-600">Exploring concurrency control methods for Google Datastore.</p>
+        </header>
+
+        <!-- Current State & Context -->
+        <section class="mb-12 bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold text-slate-700 mb-4">Current Execution State: Outer Transaction</h2>
+            <p class="text-slate-600 mb-4">
+                This section helps visualize the critical concept of **Transaction Propagation**. Use the toggle to see how each Objectify method behaves depending on whether it is called inside or outside an active transaction.
+            </p>
+            <div class="flex items-center justify-between p-4 rounded-lg bg-gray-50 border border-gray-200">
+                <span class="font-medium text-lg text-slate-700">Is Outer Transaction Active?</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" value="" class="sr-only peer" id="outerTransactionToggle">
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    <span id="state-label" class="ml-3 text-sm font-medium text-gray-900">Inactive</span>
+                </label>
+            </div>
+        </section>
+
+        <!-- Method Selection Cards -->
+        <section class="mb-8">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+                <!-- transactWithReturn -->
+                <div id="transactWithReturn" data-method="transactWithReturn" class="method-card bg-white p-5 rounded-xl shadow-md flex flex-col justify-between">
+                    <div class="mb-3">
+                        <span class="text-3xl">🔄</span>
+                        <h3 class="text-lg font-bold text-slate-800 mt-2">transactWithReturn()</h3>
+                    </div>
+                    <p class="text-sm text-slate-500">Core atomic Read-Modify-Write. Flexible boundary, returns result.</p>
+                </div>
+
+                <!-- transact -->
+                <div id="transact" data-method="transact" class="method-card bg-white p-5 rounded-xl shadow-md flex flex-col justify-between">
+                    <div class="mb-3">
+                        <span class="text-3xl">🔒</span>
+                        <h3 class="text-lg font-bold text-slate-800 mt-2">transact()</h3>
+                    </div>
+                    <p class="text-sm text-slate-500">Core atomic Read-Modify-Write. Same boundary rules, no return value.</p>
+                </div>
+
+                <!-- tryOnceWithReturn -->
+                <div id="tryOnceWithReturn" data-method="tryOnceWithReturn" class="method-card bg-white p-5 rounded-xl shadow-md flex flex-col justify-between">
+                    <div class="mb-3">
+                        <span class="text-3xl">⚡</span>
+                        <h3 class="text-lg font-bold text-slate-800 mt-2">tryOnceWithReturn()</h3>
+                    </div>
+                    <p class="text-sm text-slate-500">Forces a new, isolated transaction. Limited to a single retry.</p>
+                </div>
+
+                <!-- transactionless -->
+                <div id="transactionless" data-method="transactionless" class="method-card bg-white p-5 rounded-xl shadow-md flex flex-col justify-between">
+                    <div class="mb-3">
+                        <span class="text-3xl">💨</span>
+                        <h3 class="text-lg font-bold text-slate-800 mt-2">transactionless()</h3>
+                    </div>
+                    <p class="text-sm text-slate-500">Explicitly runs outside all transactional boundaries. No consistency check.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Dynamic Detail Panel -->
+        <section id="detail-panel" class="bg-white p-6 md:p-8 rounded-xl shadow-lg">
+            <div id="placeholder-content" class="text-center py-10">
+                <p class="text-gray-400 text-xl font-medium">Select a method above to view its details.</p>
+            </div>
+
+            <div id="method-details" style="display: none;">
+                <h2 id="detail-title" class="text-2xl font-bold text-blue-600 mb-4"></h2>
+
+                <div class="grid md:grid-cols-3 gap-6 mb-6">
+                    <!-- Propagation -->
+                    <div class="status-box p-4 rounded-lg border border-gray-200">
+                        <p class="text-sm font-semibold text-slate-700">Transaction Propagation</p>
+                        <p id="detail-propagation" class="text-xl font-bold mt-1 text-slate-800"></p>
+                    </div>
+
+                    <!-- Retry Logic -->
+                    <div class="status-box p-4 rounded-lg border border-gray-200">
+                        <p class="text-sm font-semibold text-slate-700">Optimistic Retry Attempts</p>
+                        <p id="detail-retries" class="text-xl font-bold mt-1 text-slate-800"></p>
+                    </div>
+                    
+                    <!-- Return Type -->
+                    <div class="status-box p-4 rounded-lg border border-gray-200">
+                        <p class="text-sm font-semibold text-slate-700">Return Type</p>
+                        <p id="detail-return" class="text-xl font-bold mt-1 text-slate-800"></p>
+                    </div>
+                </div>
+
+                <h3 class="text-lg font-bold text-slate-700 mt-4 mb-2">Primary Use Case</h3>
+                <p id="detail-use-case" class="text-slate-600 mb-6"></p>
+
+                <h3 class="text-lg font-bold text-slate-700 mt-4 mb-2">Behavior Summary</h3>
+                <div id="detail-summary" class="p-4 rounded-lg border-2" style="background-color: #f7f9fc;"></div>
+            </div>
+        </section>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const methodsData = {
+        transactWithReturn: {
+            title: "transactWithReturn(Work<R> work)",
+            propagation: "Contextual (Joins or Starts New)",
+            retries: "Full Retries (Default 3)",
+            returnType: "<R> (Result of Work)",
+            useCase: "The primary method for critical Read-Modify-Write operations. Use this when you need absolute atomicity, automatic retry logic, and must return the newly created or updated entity/ID.",
+            propagation_active: "JOINS existing transaction and is only committed if the outer transaction succeeds.",
+            propagation_inactive: "STARTS a new, independent transaction with a full retry loop.",
+            color: 'text-green-700',
+        },
+        transact: {
+            title: "transact(Runnable work)",
+            propagation: "Contextual (Joins or Starts New)",
+            retries: "Full Retries (Default 3)",
+            returnType: "void",
+            useCase: "Use for atomic updates, saves, or deletes that do not need to return a value. Functionally identical to transactWithReturn() regarding consistency and propagation.",
+            propagation_active: "JOINS existing transaction and is only committed if the outer transaction succeeds.",
+            propagation_inactive: "STARTS a new, independent transaction with a full retry loop.",
+            color: 'text-green-700',
+        },
+        tryOnceWithReturn: {
+            title: "tryOnceWithReturn(Work<T> work)",
+            propagation: "Always New Transaction",
+            retries: "Single Retry (2 Total Attempts)",
+            returnType: "<T> (Result of Work)",
+            useCase: "Ideal for low-contention, simple updates where you want a fast failure rather than waiting for the full retry loop. Forces an isolated transactional boundary.",
+            propagation_active: "STARTS a new, isolated transaction, ignoring the outer one. Commits/fails independently.",
+            propagation_inactive: "STARTS a new, independent transaction with a single retry.",
+            color: 'text-orange-700',
+        },
+        transactionless: {
+            title: "transactionless(Work<R> work) / (Runnable work)",
+            propagation: "None (Runs Outside)",
+            retries: "None (No Concurrency Check)",
+            returnType: "void or <R>",
+            useCase: "The best choice for read-only operations to avoid transactional overhead and cost. Also used when you need to intentionally bypass the concurrency checks for non-critical writes.",
+            propagation_active: "SUSPENDS the active transaction. The work runs in a non-transactional context and cannot be rolled back with the outer transaction.",
+            propagation_inactive: "Runs in a standard, non-transactional context (like a regular Datastore operation).",
+            color: 'text-red-700',
+        }
+    };
+
+    const cards = document.querySelectorAll('.method-card');
+    const toggle = document.getElementById('outerTransactionToggle');
+    const stateLabel = document.getElementById('state-label');
+    let isOuterActive = false;
+    let currentMethodKey = null;
+
+    const detailElements = {
+        title: document.getElementById('detail-title'),
+        propagation: document.getElementById('detail-propagation'),
+        retries: document.getElementById('detail-retries'),
+        return: document.getElementById('detail-return'),
+        useCase: document.getElementById('detail-use-case'),
+        summary: document.getElementById('detail-summary')
+    };
+    
+    const detailPanel = document.getElementById('method-details');
+    const placeholder = document.getElementById('placeholder-content');
+
+    function updateDetails(key) {
+        if (!key) return;
+        currentMethodKey = key;
+        const data = methodsData[key];
+
+        // 1. Update Static Details
+        detailElements.title.textContent = data.title;
+        detailElements.propagation.textContent = data.propagation;
+        detailElements.retries.textContent = data.retries;
+        detailElements.return.textContent = data.returnType;
+        detailElements.useCase.textContent = data.useCase;
+        
+        // 2. Update Dynamic Summary based on toggle state
+        let summaryText;
+        if (isOuterActive) {
+            summaryText = data.propagation_active;
+            detailElements.summary.classList.add('border-blue-500');
+            detailElements.summary.classList.remove('border-gray-300');
+        } else {
+            summaryText = data.propagation_inactive;
+            detailElements.summary.classList.add('border-gray-300');
+            detailElements.summary.classList.remove('border-blue-500');
+        }
+        detailElements.summary.innerHTML = `<p class="font-semibold mb-1">Impact when Outer Transaction is ${isOuterActive ? 'Active (Blue)' : 'Inactive (Gray)'}:</p><p class="${data.color}">${summaryText}</p>`;
+        
+        detailPanel.style.display = 'block';
+        placeholder.style.display = 'none';
+    }
+
+    function handleCardClick(event) {
+        const card = event.currentTarget;
+        const key = card.dataset.method;
+
+        cards.forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+
+        updateDetails(key);
+    }
+
+    function handleToggleChange() {
+        isOuterActive = toggle.checked;
+        stateLabel.textContent = isOuterActive ? 'Active' : 'Inactive';
+        stateLabel.classList.toggle('text-blue-600', isOuterActive);
+        stateLabel.classList.toggle('text-gray-900', !isOuterActive);
+        
+        // If a card is selected, update the dynamic summary
+        if (currentMethodKey) {
+            updateDetails(currentMethodKey);
+        }
+    }
+
+    cards.forEach(card => card.addEventListener('click', handleCardClick));
+    toggle.addEventListener('change', handleToggleChange);
+    
+    // Initial state setup
+    handleToggleChange();
+});
+</script>
+
+</body>
+</html>
